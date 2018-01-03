@@ -3,6 +3,8 @@ import time
 import random 
 import requests
 import praw
+import redis
+import json
 
 from slackclient import SlackClient
 
@@ -19,11 +21,15 @@ reddit = praw.Reddit(client_id=os.environ.get('REDDIT_CLIENT_ID'),
 # instantiate slack client
 slack_client = SlackClient(BOT_TOKEN)
 
+# instantiate redis
+redis_db = redis.Redis(host="localhost", port=6379, db=0)
+
 # constants
 RTM_READ_DELAY = 1   # 1 second delay between reading from RTM
 AT_BOT = '<@' + BOT_ID + '>'
 KEYWORDS = ['memes', 'meme', 'dank', 'shitposting', 'shitpost', 'funny', 'meirl', 'me irl', 'me_irl']
 SUBREDDITS = ['meirl', 'memes', 'funny']
+
 
 def parse_commands(slack_events):
     """
@@ -68,9 +74,8 @@ def handle_command(command, channel):
     # see if user mentioned any of the key responses 
     if any(keyword in user_command_str for keyword in KEYWORDS):
         meme_title, meme_url = get_meme() 
-
-    response = '> *' + meme_title + '* \n' +\
-               '> ' + meme_url
+        response = '> *' + meme_title + '* \n' +\
+                    '> ' + meme_url
 
     # Sends the response back to the channel
     slack_client.api_call(
@@ -80,41 +85,87 @@ def handle_command(command, channel):
             )
 
 
+def cache_memes():
+    '''
+        Uses PRAW to fetch and cache all memes from the SUBREDDITS list in the past 24 hours
+
+        Returns:
+            - True upon successful cache of memes into Redis, False otherwise
+    '''
+
+    master_list = []
+
+    # cache content from each subreddit
+    for subreddit in SUBREDDITS:
+        curr_subreddit = reddit.subreddit(subreddit)
+        top_memes = list(curr_subreddit.top(limit=25))
+        random.shuffle(top_memes)
+        
+        # cache each meme's title and url
+        for meme in top_memes:
+            try:
+                content_type = get_content_type(meme.url)
+            except:
+                print('An error occurred getting content type for url: {}'.format(meme.url))
+                continue
+
+            content_size = len(requests.get(meme.url).content)
+            if 'image' not in content_type or content_size > 1000000:
+                continue
+
+            meme_content = [subreddit, meme.title, meme.url, meme]
+            master_list.append(meme_content)
+
+        print('Indexed r/{}...'.format(subreddit))
+            
+    master_list = json.dumps(master_list)
+    if redis_db.set('cache', master_list):
+        return True
+    return False
+
+
 def get_meme():
     '''
-        Uses PRAW to fetch a meme URL from reddit
+        Fetches a random meme from the redis cache
+
+        Returns:
+            - meme title
+            - meme image URL
     '''
     
-    subreddit = reddit.subreddit(random.choice(SUBREDDITS))
-    top_memes = list(subreddit.top(limit=25))
+    # fetch cached memes
+    cached_meme_list = json.loads(redis_db.get('cache'))
 
-    meme_choice = random.choice(top_memes)
-    content_type = get_content_type(meme_choice.url)
-    content_size = len(requests.get(meme_choice.url).content)
+    # if all memes have been seen/removed from cache, re-index the subreddits 
+    if len(cached_meme_list) == 0:
+        cache_memes()
+        cached_meme_list = json.loads(redis_db.get('cache'))
 
-    # verify that the returned url is an image to properly preview in slack
-    while 'image' not in content_type or content_size > 1000000: 
-        meme_choice = random.choice(top_memes)
-        content_type = get_content_type(meme_choice.url)
-        content_size = len(requests.get(meme_choice.url).content)
-
-    print(subreddit)
-    print(meme_choice.title)
-    print(meme_choice.url)
-    print(content_type)
-    print(content_size)
-    print()
+    # choose a random meme from cache
+    meme_choice = random.choice(cached_meme_list)
+    meme_title = meme_choice[1]
+    meme_url = meme_choice[2]
+    meme_id = meme_choice[3]
+    print('meme_id:', meme_id)
     
-    return meme_choice.title, meme_choice.url
+    # remove meme from cache to avoid duplicates
+    cached_meme_list.remove(meme_choice)
+    cached_meme_list = json.dumps(cached_meme_list)
+    redis_db.set('cache', cached_meme_list)
+    
+    return meme_title, meme_url
 
 
 def get_content_type(url):
+    '''
+        Get content type of meme url. Used to verify that the URL is an image
+    '''
     return requests.head(url).headers['Content-Type']
 
 
 def listen():
     '''
-        Listens to Slack for events every RTM_READ_DELAY interval 
+        Infinitely loops, listening to Slack for events every RTM_READ_DELAY interval.
     '''
 
     if slack_client.rtm_connect(with_team_state=False):
@@ -129,7 +180,19 @@ def listen():
         print("Connection failed. Exception traceback printed above.")
 
 
+def run():
+    '''
+        Run the app.
+    '''
+
+    print('Caching new memes...')
+    if not cache_memes():
+        print('Error indexing subreddits.')
+        return 
+
+    print('Cached all new memes. Launching memebot...')
+    listen()
 
 
 if __name__ == "__main__":
-    listen()
+    run()

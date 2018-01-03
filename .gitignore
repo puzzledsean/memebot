@@ -2,6 +2,8 @@
 __pycache__
 *.swo
 *.swp
+*.rdb
+
 .DS_Store
 
 # Environments
