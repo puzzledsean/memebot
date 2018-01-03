@@ -97,6 +97,7 @@ def cache_memes():
 
     # cache content from each subreddit
     for subreddit in SUBREDDITS:
+        print('Added r/{} to master list...'.format(subreddit))
         curr_subreddit = reddit.subreddit(subreddit)
         top_memes = list(curr_subreddit.top(limit=25))
         random.shuffle(top_memes)
@@ -113,12 +114,13 @@ def cache_memes():
             if 'image' not in content_type or content_size > 1000000:
                 continue
 
-            meme_content = [subreddit, meme.title, meme.url, meme]
+            # append meme info to master list
+            meme_content = [subreddit, meme.title, meme.url, meme.id]
             master_list.append(meme_content)
 
-        print('Indexed r/{}...'.format(subreddit))
-            
+    # cache master list 
     master_list = json.dumps(master_list)
+
     if redis_db.set('cache', master_list):
         return True
     return False
@@ -146,7 +148,7 @@ def get_meme():
     meme_title = meme_choice[1]
     meme_url = meme_choice[2]
     meme_id = meme_choice[3]
-    print('meme_id:', meme_id)
+    print('id of meme posted:', meme_id)
     
     # remove meme from cache to avoid duplicates
     cached_meme_list.remove(meme_choice)
