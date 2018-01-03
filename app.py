@@ -102,7 +102,7 @@ def cache_memes():
     for subreddit in SUBREDDITS:
         print('Added r/{} to master list...'.format(subreddit))
         curr_subreddit = reddit.subreddit(subreddit)
-        top_memes = list(curr_subreddit.top(limit=25))
+        top_memes = list(curr_subreddit.top(limit=50))
         random.shuffle(top_memes)
         
         # cache each meme's title and url
