@@ -187,12 +187,17 @@ def run():
         Run the app.
     '''
 
-    print('Caching new memes...')
-    if not cache_memes():
-        print('Error indexing subreddits.')
-        return 
+    # check if cache is empty
+    cache = json.loads(redis_db.get('cache'))
+    if len(cache) == 0 or cache is None: 
+        print('Caching new memes...')
+        if not cache_memes():
+            print('Error indexing subreddits.')
+            return 
+        print('Cached all new memes. Launching memebot...')
+    else:
+        print('Memes have previously been cached. Launching memebot...')
 
-    print('Cached all new memes. Launching memebot...')
     listen()
 
 
