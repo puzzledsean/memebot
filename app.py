@@ -24,6 +24,9 @@ slack_client = SlackClient(BOT_TOKEN)
 # instantiate redis
 redis_db = redis.from_url(os.environ.get("REDIS_URL")) 
 
+# redis for local
+#  redis_db = redis.Redis(host="localhost", port=6379, db=0)
+
 # constants
 RTM_READ_DELAY = 1   # 1 second delay between reading from RTM
 AT_BOT = '<@' + BOT_ID + '>'
@@ -188,8 +191,8 @@ def run():
     '''
 
     # check if cache is empty
-    cache = json.loads(redis_db.get('cache'))
-    if len(cache) == 0 or cache is None: 
+    cache = redis_db.get('cache')
+    if cache is None: 
         print('Caching new memes...')
         if not cache_memes():
             print('Error indexing subreddits.')
