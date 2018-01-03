@@ -22,7 +22,7 @@ reddit = praw.Reddit(client_id=os.environ.get('REDDIT_CLIENT_ID'),
 slack_client = SlackClient(BOT_TOKEN)
 
 # instantiate redis
-redis_db = redis.Redis(host="localhost", port=6379, db=0)
+redis_db = redis.from_url(os.environ.get("REDIS_URL")) 
 
 # constants
 RTM_READ_DELAY = 1   # 1 second delay between reading from RTM
