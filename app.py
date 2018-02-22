@@ -1,10 +1,12 @@
 import os
 import time
-import random 
+import random
+import json
+
+import schedule
 import requests
 import praw
 import redis
-import json
 
 from slackclient import SlackClient
 
@@ -13,18 +15,18 @@ BOT_ID = os.environ.get('SLACK_BOT_ID')
 
 # instantiate reddit praw client
 reddit = praw.Reddit(client_id=os.environ.get('REDDIT_CLIENT_ID'),
-                    client_secret=os.environ.get('REDDIT_CLIENT_SECRET'), 
-                    password=os.environ.get('REDDIT_PW'), 
-                    username=os.environ.get('REDDIT_USER'),
-                    user_agent='memebot')
+                     client_secret=os.environ.get('REDDIT_CLIENT_SECRET'),
+                     password=os.environ.get('REDDIT_PW'),
+                     username=os.environ.get('REDDIT_USER'),
+                     user_agent='memebot')
 
 # instantiate slack client
 slack_client = SlackClient(BOT_TOKEN)
 
 # instantiate redis
-redis_db = redis.from_url(os.environ.get("REDIS_URL")) 
+redis_db = redis.from_url(os.environ.get("REDIS_URL"))
 
-# redis for local
+# redis for local (comment this in and comment the above line out to test locally)
 #  redis_db = redis.Redis(host="localhost", port=6379, db=0)
 
 # constants
@@ -68,15 +70,19 @@ def handle_command(command, channel):
         'Rest in peace Harambe',
         'How about no',
         'The earth is flat',
+        'f u',
+        'trolololololololol',
+        '"{}"\n"{}"\n"{}"\n'.format(command),
+        'ron paul 2k12',
         ])
 
     # Finds and executes the given command, filling in response
     response = None
     user_command_str = ' '.join(command).lower()
 
-    # see if user mentioned any of the key responses 
+    # see if user mentioned any of the key responses
     if any(keyword in user_command_str for keyword in KEYWORDS):
-        meme_title, meme_url = get_meme() 
+        meme_title, meme_url = get_meme()
         response = '> *' + meme_title + '* \n' +\
                     '> ' + meme_url
 
@@ -90,11 +96,13 @@ def handle_command(command, channel):
 
 def cache_memes():
     '''
-        Uses PRAW to fetch and cache all memes from the SUBREDDITS list in the past 24 hours
+        Uses PRAW to fetch and cache all memes from the SUBREDDITS list in the past week
 
         Returns:
             - True upon successful cache of memes into Redis, False otherwise
     '''
+
+    print('Caching new memes...')
 
     master_list = []
 
@@ -102,7 +110,7 @@ def cache_memes():
     for subreddit in SUBREDDITS:
         print('Added r/{} to master list...'.format(subreddit))
         curr_subreddit = reddit.subreddit(subreddit)
-        top_memes = list(curr_subreddit.top(limit=50))
+        top_memes = list(curr_subreddit.top(time_filter='week', limit=50))
         random.shuffle(top_memes)
         
         # cache each meme's title and url
@@ -125,6 +133,7 @@ def cache_memes():
     master_list = json.dumps(master_list)
 
     if redis_db.set('cache', master_list):
+        print('Cached all new memes. Bot will continue running...')
         return True
     return False
 
@@ -148,10 +157,11 @@ def get_meme():
 
     # choose a random meme from cache
     meme_choice = random.choice(cached_meme_list)
+    subreddit = meme_choice[0]
     meme_title = meme_choice[1]
     meme_url = meme_choice[2]
     meme_id = meme_choice[3]
-    print('id of meme posted:', meme_id)
+    print('Meme posted. ID {}. Subreddit: {} URL: {}'.format(meme_id, subreddit, meme_url))
     
     # remove meme from cache to avoid duplicates
     cached_meme_list.remove(meme_choice)
@@ -173,6 +183,9 @@ def listen():
         Infinitely loops, listening to Slack for events every RTM_READ_DELAY interval.
     '''
 
+    # refresh the cache of memes every week
+    schedule.every().sunday.do(cache_memes)
+
     if slack_client.rtm_connect(with_team_state=False):
         print("Meme Bot connected and running!")
 
@@ -180,6 +193,10 @@ def listen():
             command, channel = parse_commands(slack_client.rtm_read())
             if command:
                 handle_command(command, channel)
+            
+            # if it's time to cache new memes, do so
+            schedule.run_pending()
+
             time.sleep(RTM_READ_DELAY)
     else:
         print("Connection failed. Exception traceback printed above.")
@@ -193,7 +210,7 @@ def run():
     # check if cache is empty
     cache = redis_db.get('cache')
     if cache is None: 
-        print('Caching new memes...')
+        print('Bot initiated. Caching new memes...')
         if not cache_memes():
             print('Error indexing subreddits.')
             return 
@@ -206,3 +223,4 @@ def run():
 
 if __name__ == "__main__":
     run()
+
