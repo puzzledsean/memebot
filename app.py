@@ -72,7 +72,7 @@ def handle_command(command, channel):
         'The earth is flat',
         'f u',
         'trolololololololol',
-        '"{}"\n"{}"\n"{}"\n'.format(command),
+        '"{}"\n"{}"\n"{}"\n'.format(command, command, command),
         'ron paul 2k12',
         ])
 
